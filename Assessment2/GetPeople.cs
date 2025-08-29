@@ -1,4 +1,6 @@
+using System.Net;
 using System.Text;
+using System.Text.Json;
 using Assessment2.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -21,32 +23,67 @@ namespace Assessment2
         }
 
         [Function("GetPeople")]
-        public IActionResult Run([HttpTrigger(AuthorizationLevel.Function, "get", "post")] HttpRequest req)
+        public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest req)
         {
-            PersonModel[] people =
-            [
-                new() { FirstName = "Gia", LastName = "Wolanski" },
-                new() { FirstName = "Chris", LastName = "Mersman"},
-                new() { FirstName = "Bob", LastName = "Builder"}
-            ];
+            //not using below because using postman to send json array of object
+            //PersonModel[] people =
+            //[
+            //    new() { FirstName = "Gia", LastName = "Wolanski" },
+            //    new() { FirstName = "Chris", LastName = "Mersman"},
+            //    new() { FirstName = "Bob", LastName = "Builder"}
+            //];
 
-            string filePath = "people.csv";
             string conn = _config.GetConnectionString("Default");
 
-            var csvBuilder = new StringBuilder();
-            csvBuilder.AppendLine("FirstName,LastName,ConnectionString");
 
-            foreach (var person in people)
+            var data = await JsonSerializer.DeserializeAsync<List<PersonModel>>(req.Body);
+
+            if (data is null || data.Count == 0)
             {
-                csvBuilder.AppendLine($"{person.FirstName},{person.LastName}, {conn}");
+                _logger.LogError("No data found in request body.");
+                return new OkObjectResult(HttpStatusCode.BadRequest);
             }
 
-            byte[] fileBytes = Encoding.UTF8.GetBytes(csvBuilder.ToString());
+            _logger.LogInformation($"Processing GetPeople action for {data}", req.Body);
 
-            return new FileContentResult(fileBytes, "text/csv")
+            bool? includeHeader = _config.GetValue<bool>("includeHeader");
+
+            if (includeHeader is null)
             {
-                FileDownloadName = "people.csv"
-            };
+                _logger.LogError("No includeHeader value found in config.");
+                return new OkObjectResult(HttpStatusCode.InternalServerError);
+            }
+            else if (includeHeader is false)
+            {
+                var csvBuilder = new StringBuilder();
+                foreach (var person in data)
+                {
+                    csvBuilder.AppendLine($"{person.FirstName},{person.LastName}");
+                }
+                byte[] fileBytes = Encoding.UTF8.GetBytes(csvBuilder.ToString());
+
+                return new FileContentResult(fileBytes, "text/csv")
+                {
+                    FileDownloadName = "people.csv"
+                };
+            }
+            else
+            {
+                var csvBuilder = new StringBuilder();
+                csvBuilder.AppendLine("FirstName,LastName");
+
+                foreach (var person in data)
+                {
+                    csvBuilder.AppendLine($"{person.FirstName},{person.LastName}");
+                }
+                byte[] fileBytes = Encoding.UTF8.GetBytes(csvBuilder.ToString());
+
+                return new FileContentResult(fileBytes, "text/csv")
+                {
+                    FileDownloadName = "people.csv"
+                };
+            }
+
 
             //using (StreamWriter sw = new(filePath))
             //{
@@ -59,6 +96,8 @@ namespace Assessment2
             //        sw.WriteLine(conn);
             //    }
             //}
+
+
             
         }
     }
